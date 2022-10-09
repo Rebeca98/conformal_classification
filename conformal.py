@@ -235,6 +235,7 @@ def giq(scores, targets, I, ordered, cumsum, penalties, randomized, allow_zero_s
 ### AUTOMATIC PARAMETER TUNING FUNCTIONS
 def pick_kreg(paramtune_logits, alpha):
     gt_locs_kstar = np.array([np.where(np.argsort(x[0]).flip(dims=(0,)) == x[1])[0][0] for x in paramtune_logits])
+    # np.argasort(x[0],axis=-1,kind=None, order = None) axis = -1 is the last axis, in tensor with shape (batch_size,num_channels,imgsize)
     kstar = np.quantile(gt_locs_kstar, 1-alpha, interpolation='higher') + 1
     return kstar 
 
