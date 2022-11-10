@@ -1,4 +1,7 @@
 # Build settings
+title: Minimalist theme
+  #logo: /assets/img/logo.png
+color-scheme: auto
 plugins:
   - jekyll-relative-links
 relative_links:
@@ -8,4 +11,4 @@ include:
   - CONTRIBUTING.md
   - README.md
   - LICENSE.md
-theme: jekyll-theme-tactile
+theme: Bay
