@@ -1,7 +1,3 @@
----
-layout: default
-title: Home
----
 # conformal classification Documentation
 This page is created to document Classes and functions used in this library.
 
