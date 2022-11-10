@@ -1,3 +1,11 @@
 # Build settings
-markdown: kramdown
-theme: minima
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: true
+include:
+  - CONTRIBUTING.md
+  - README.md
+  - LICENSE.md
+theme: jekyll-theme-tactile
