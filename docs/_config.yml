@@ -11,4 +11,4 @@ include:
   - CONTRIBUTING.md
   - README.md
   - LICENSE.md
-theme: Bay
+theme: minima
