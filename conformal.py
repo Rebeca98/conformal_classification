@@ -10,30 +10,70 @@ from tqdm import tqdm
 from utils import validate, get_logits_targets, sort_sum
 import pdb
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Conformalize a model with a calibration set.
 # Save it to a file in .cache/modelname
 # The only difference is that the forward method of ConformalModel also outputs a set.
+
+
 class ConformalModel(nn.Module):
+    """Represents an object for conformal claibration
+
+    Attributes
+    ----------
+    model : nn.Module
+      Trained Neural Network Model for Image classification. This model must be on eval mode.
+        e.g. 
+            model = torchvision.models.resnet152(pretrained=True,progress=True)
+            model.eval()
+    calib_loader: torch.utils.data.DataLoader
+      Dataloader with calibration dataset
+    alpha: double
+      error level of the conformal algorithm
+    kreg: int
+        pendiente
+    lambda: int o double
+        pendiente 
+    randomized: boolean
+        pendiente
+    allow_zero_sets: boolean
+        pendiente
+    pct_paramtune: double
+        percentage of the calibration dataset for the parameter tunning (optimizing)
+    batch_size: int
+        batch_size for (pendiente)
+    lamda_criterion: string
+        pendiente
+    """
     def __init__(self, model, calib_loader, alpha, kreg=None, lamda=None, randomized=True, allow_zero_sets=False, pct_paramtune = 0.3, batch_size=32, lamda_criterion='size'):
+        """
+        Parameters
+        ----------
+        data : pandas.DataFrame
+          DataFrame object that make up the dataset.
+        info : dict
+          Information of the dataset.
+        """
         super(ConformalModel, self).__init__()
         self.model = model 
         self.alpha = alpha
         self.T = torch.Tensor([1.3]) #initialize (1.3 is usually a good value)
-        self.T, calib_logits = platt(self, calib_loader)
-        self.randomized=randomized
-        self.allow_zero_sets=allow_zero_sets
+        self.T, calib_logits = platt(self, calib_loader) # platt algorithm (ref)
+        self.randomized = randomized #pendiente teorico
+        self.allow_zero_sets = allow_zero_sets #pendiente
         self.num_classes = len(calib_loader.dataset.dataset.classes)
 
+        #parameter optimizing (paramtuning)
         if kreg == None or lamda == None:
             kreg, lamda, calib_logits = pick_parameters(model, calib_logits, alpha, kreg, lamda, randomized, allow_zero_sets, pct_paramtune, batch_size, lamda_criterion)
-
+        #pendiente
         self.penalties = np.zeros((1, self.num_classes))
         self.penalties[:, kreg:] += lamda 
-
+        #calibration dataloader (prediction,real)
         calib_loader = tdata.DataLoader(calib_logits, batch_size = batch_size, shuffle=False, pin_memory=True)
-
+        # referencia a mi paper 
         self.Qhat = conformal_calibration_logits(self, calib_loader)
-
+   
     def forward(self, *args, randomized=None, allow_zero_sets=None, **kwargs):
         if randomized == None:
             randomized = self.randomized
@@ -43,10 +83,11 @@ class ConformalModel(nn.Module):
         
         with torch.no_grad():
             logits_numpy = logits.detach().cpu().numpy()
+            # Temperature scaling (referencia)
             scores = softmax(logits_numpy/self.T.item(), axis=1)
-
+            #step of the algorithm (referencia)
             I, ordered, cumsum = sort_sum(scores)
-
+            #step of the algorithm (referencia), tiene nombre en mi tesis
             S = gcq(scores, self.Qhat, I=I, ordered=ordered, cumsum=cumsum, penalties=self.penalties, randomized=randomized, allow_zero_sets=allow_zero_sets)
 
         return logits, S
@@ -57,7 +98,7 @@ def conformal_calibration(cmodel, calib_loader):
     with torch.no_grad():
         E = np.array([])
         for x, targets in tqdm(calib_loader):
-            logits = cmodel.model(x.cuda()).detach().cpu().numpy()
+            logits = cmodel.model(x.to(device)).detach().cpu().numpy()
             scores = softmax(logits/cmodel.T.item(), axis=1)
 
             I, ordered, cumsum = sort_sum(scores)
@@ -70,6 +111,25 @@ def conformal_calibration(cmodel, calib_loader):
 
 # Temperature scaling
 def platt(cmodel, calib_loader, max_iters=10, lr=0.01, epsilon=0.01):
+    """
+    Creates a Dataset from a json file.
+
+    Parameters
+    ----------
+    destination_folder : str
+        The folder path where the dataset will be stored.
+    json_file : str
+        Path of a json file that will be converted into a Dataset.
+    categories : list of str, optional
+        List of categories to filter registers (default is [])
+    **kwargs :
+        Extra named arguments passed to build_json
+
+    Returns
+    -------
+    Dataset
+        Instance of the created Dataset
+    """
     print("Begin Platt scaling.")
     # Save logits so don't need to double compute them
     logits_dataset = get_logits_targets(cmodel.model, calib_loader)
@@ -81,17 +141,50 @@ def platt(cmodel, calib_loader, max_iters=10, lr=0.01, epsilon=0.01):
     return T, logits_dataset 
 
 """
-
-
         INTERNAL FUNCTIONS
-
-
 """
 
 ### Precomputed-logit versions of the above functions.
 
 class ConformalModelLogits(nn.Module):
+    """
+    Represents an object for conformal claibration
+
+    Attributes
+    ----------
+    model : nn.Module
+      Trained Neural Network Model for Image classification. This model must be on eval mode.
+        e.g. 
+            model = torchvision.models.resnet152(pretrained=True,progress=True)
+            model.eval()
+    calib_loader: torch.utils.data.DataLoader
+      Dataloader with calibration dataset
+    alpha: double
+      error level of the conformal algorithm
+    kreg: int
+        pendiente
+    lambda: int o double
+        pendiente 
+    randomized: boolean
+        pendiente
+    allow_zero_sets: boolean
+        pendiente
+    pct_paramtune: double
+        percentage of the calibration dataset for the parameter tunning (optimizing)
+    batch_size: int
+        batch_size for (pendiente)
+    lamda_criterion: string
+        pendiente
+    """
     def __init__(self, model, calib_loader, alpha, kreg=None, lamda=None, randomized=True, allow_zero_sets=False, naive=False, LAC=False, pct_paramtune = 0.3, batch_size=32, lamda_criterion='size'):
+        """
+        Parameters
+        ----------
+        data : pandas.DataFrame
+          DataFrame object that make up the dataset.
+        info : dict
+          Information of the dataset.
+        """
         super(ConformalModelLogits, self).__init__()
         self.model = model 
         self.alpha = alpha
@@ -108,6 +201,7 @@ class ConformalModelLogits(nn.Module):
         if not (kreg == None) and not naive and not LAC:
             self.penalties[:, kreg:] += lamda
         self.Qhat = 1-alpha
+        # aun no queda claro que es LAC
         if not naive and not LAC:
             self.Qhat = conformal_calibration_logits(self, calib_loader)
         elif not naive and LAC:
@@ -135,6 +229,25 @@ class ConformalModelLogits(nn.Module):
         return logits, S
 
 def conformal_calibration_logits(cmodel, calib_loader):
+    """
+    Creates a Dataset from a json file.
+
+    Parameters
+    ----------
+    destination_folder : str
+        The folder path where the dataset will be stored.
+    json_file : str
+        Path of a json file that will be converted into a Dataset.
+    categories : list of str, optional
+        List of categories to filter registers (default is [])
+    **kwargs :
+        Extra named arguments passed to build_json
+
+    Returns
+    -------
+    Dataset
+        Instance of the created Dataset
+    """
     with torch.no_grad():
         E = np.array([])
         for logits, targets in calib_loader:
@@ -151,19 +264,38 @@ def conformal_calibration_logits(cmodel, calib_loader):
         return Qhat 
 
 def platt_logits(cmodel, calib_loader, max_iters=10, lr=0.01, epsilon=0.01):
-    nll_criterion = nn.CrossEntropyLoss().cuda()
+    """
+    Creates a Dataset from a json file.
 
-    T = nn.Parameter(torch.Tensor([1.3]).cuda())
+    Parameters
+    ----------
+    destination_folder : str
+        The folder path where the dataset will be stored.
+    json_file : str
+        Path of a json file that will be converted into a Dataset.
+    categories : list of str, optional
+        List of categories to filter registers (default is [])
+    **kwargs :
+        Extra named arguments passed to build_json
+
+    Returns
+    -------
+    Dataset
+        Instance of the created Dataset
+    """
+    nll_criterion = nn.CrossEntropyLoss().to(device)
+
+    T = nn.Parameter(torch.Tensor([1.3]).to(device))
 
     optimizer = optim.SGD([T], lr=lr)
     for iter in range(max_iters):
         T_old = T.item()
         for x, targets in calib_loader:
             optimizer.zero_grad()
-            x = x.cuda()
+            x = x.to(device)
             x.requires_grad = True
             out = x/T
-            loss = nll_criterion(out, targets.long().cuda())
+            loss = nll_criterion(out, targets.long().to(device))
             loss.backward()
             optimizer.step()
         if abs(T_old - T.item()) < epsilon:
@@ -174,6 +306,25 @@ def platt_logits(cmodel, calib_loader, max_iters=10, lr=0.01, epsilon=0.01):
 
 # Generalized conditional quantile function.
 def gcq(scores, tau, I, ordered, cumsum, penalties, randomized, allow_zero_sets):
+    """
+    Creates a Dataset from a json file.
+
+    Parameters
+    ----------
+    scores : str
+        The folder path where the dataset will be stored.
+    json_file : str
+        Path of a json file that will be converted into a Dataset.
+    categories : list of str, optional
+        List of categories to filter registers (default is [])
+    **kwargs :
+        Extra named arguments passed to build_json
+
+    Returns
+    -------
+    Dataset
+        Instance of the created Dataset
+    """
     penalties_cumsum = np.cumsum(penalties, axis=1)
     sizes_base = ((cumsum + penalties_cumsum) <= tau).sum(axis=1) + 1  # 1 - 1001
     sizes_base = np.minimum(sizes_base, scores.shape[1]) # 1-1000
@@ -299,4 +450,3 @@ def get_violation(cmodel, loader_paramtune, strata, alpha):
         stratum_violation = abs(temp_df.correct.mean()-(1-alpha))
         wc_violation = max(wc_violation, stratum_violation)
     return wc_violation # the violation
-
