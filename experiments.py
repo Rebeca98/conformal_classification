@@ -23,132 +23,11 @@ from utils import split2
 from utils_experiments import get_calib_transform, build_model_for_cp
 
 device = ('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-def experiment1_trial(model, logits, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, bsz, naive_bool):
-    """
-    model: NN classifier
-    logits:
-    alpha:
-    kreg:
-    lambda:
-    randomized:
-    n_data_conf
-    n_data_val
-    bsz:
-    naive_bool
-    """
-    # A new random split for every trial
-    # one conformal calibration subset and one evaluation subset
-    logits_cal, logits_val = split2(logits, n_data_conf, n_data_val)
-    # Prepare the loaders
-    loader_cal = torch.utils.data.DataLoader(
-        logits_cal, batch_size=bsz, shuffle=False, pin_memory=True)
-    loader_val = torch.utils.data.DataLoader(
-        logits_val, batch_size=bsz, shuffle=False, pin_memory=True)
-    # Conformalize the model
-    cmodel = ConformalModelLogits(model, loader_cal, alpha=alpha, kreg=kreg,
-                                  lamda=lamda, randomized=randomized, allow_zero_sets=True, naive=naive_bool)
-    # Collect results
-    top1_avg, top5_avg, cvg_avg, sz_avg = validate(
-        loader_val, cmodel, print_bool=True)
-    return top1_avg, top5_avg, cvg_avg, sz_avg
-
-
-def run_trials_experiment1(modelname, model, logits, num_trials, alpha, kreg,
-                           lamda, randomized, n_data_conf, n_data_val, bsz, predictor):
-    """
-    modelname: name of the model we are going to use  (e.g. efficientnet_b0)
-    datasetname:
-    datset_path:
-    model: conformalModelLogits
-    logits:
-    num_trials: number of 
-    alpha: 
-    kreg:
-    lambda
-    randomized,
-    n_data_conf, 
-    n_data_val, 
-    bsz: batch_size
-    predictor: type of Conformal predictions algorithm (naive, APS and RAPS)
-    """
-    # Experiment logic
-    naive_bool = predictor == 'Naive'
-    if predictor in ['Naive', 'APS']:
-        lamda = 0  # No regularization.
-
-    # Perform experiment
-    dfs = []
-    for i in tqdm(range(num_trials)):
-        top1_avg, top5_avg, cvg_avg, sz_avg = experiment1_trial(
-            model, logits, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, bsz, naive_bool)
-        dfs.append(pd.DataFrame.from_dict({"model": [modelname],
-                                           "predictor": [predictor],
-                                           "alpha": [alpha],
-                                           "kreg": [kreg],
-                                           "lamda": [lamda],
-                                           "coverage": [cvg_avg],
-                                           "size": [sz_avg]}))
-
-    df = pd.concat(dfs)
-    return df
-
-
-def save_experiment1_trials(model_info_file, datapath, alphas, predictors, num_trials, kregs,
-                            lamdas, randomized, total_conf, pct_data, bsz,
-                            image_size, num_classes=14, pretrained=True):
-    """
-    Report the coverage and mean set size of each procedure for (two) different choices of alpha.
-    model_info_path: dict
-    datapath: strin
-        path to the data used in calibration experiments
-    modelname: string 
-        model name used in the json file
-    alphas = [0.01, 0.05, 0.10]
-    predictors = ['Naive', 'APS', 'RAPS']
-    """
-    params = list(itertools.product(alphas, predictors))
-    m = len(params)
-    n_data_conf = int(total_conf*pct_data)
-    n_data_val = int(total_conf*pct_data)
-    cudnn.benchmark = True
-
-    modelnames = model_info_file['models'].keys()
-    modelnames_arch = [(model_info_file['models'][name]['file'], model_info_file['models'][name]['path'],
-                        model_info_file['models'][name]['architecture']) for name in modelnames]
-
-    #modelfile = model_info_file['models'][modelname]['file']
-    #architecture = model_info_file['models'][modelname]['architecture']
-    #modelpath = model_info_file['models'][modelname]['path']
-    transform = get_calib_transform(image_size)
-    params = list(itertools.product(
-        modelnames_arch, alphas, predictors, lamdas, kregs))
-    m = len(params)
-    transform = get_calib_transform(image_size)
-    # Perform the experiment
-    dfs = []
-    for i in range(m):
-        modelinfo, alpha, predictor, lamda, kreg = params[i]
-        _modelname = modelinfo[0].replace('.pth', '')
-        print(
-            f'Model: {_modelname} | Desired coverage: {1-alpha} | Predictor: {predictor} | Lambda = {lamda}')
-        model = build_model_for_cp(os.path.join(modelinfo[1], modelinfo[0]), modelinfo[2],
-                                   num_classes, pretrained).to(device)
-        logits = get_logits_dataset(os.path.join(modelinfo[1], modelinfo[0]),
-                                    modelinfo[2], datapath, transform, bsz, num_classes, pretrained)
-        out = run_trials_experiment1(_modelname, model, logits, num_trials, alpha, kreg,
-                                     lamda, randomized, n_data_conf, n_data_val, bsz, predictor)
-
-        dfs.append(out)
-    df = pd.concat(dfs)
-    return df
-
-
 # Returns a dataframe with:
 # 1) Set sizes for all test-time examples.
 # 2) topk for each example, where topk means which score was correct.
-# experiment 2
+
+
 def sizes_topk(modelpath, modelname, datasetpath, num_classes,
                transform, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, bsz, predictor, pretrained=True):
     # Experiment logic
@@ -192,9 +71,9 @@ def sizes_topk(modelpath, modelname, datasetpath, num_classes,
     return topk, size
 
 
-def save_experiment2(model_info_file, datapath, num_classes, alphas, predictors, lambdas, kregs,
-                     randomized, total_conf, pct_cal, pct_val, bsz,
-                     image_size, pretrained=True):
+def create_df_sizes_topk(model_info_file, datapath, num_classes, alphas, predictors, lambdas, kregs,
+                         randomized, total_conf, pct_cal, pct_val, bsz,
+                         image_size, pretrained=True):
     """
     This experiment illustrates the tradeoff between the set size and adaptiveness.
 
@@ -235,12 +114,10 @@ def save_experiment2(model_info_file, datapath, num_classes, alphas, predictors,
     df = pd.concat(dfs)
     return df
 
-
-# experiment 3
 # report coverage and size of the optimizal, randomized fixed sets naive, APS and RAPS
 
 
-def experiment3_trial(model, logits, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, naive_bool, fixed_bool):
+def evaluate(model, logits, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, naive_bool, fixed_bool):
     # A new random split for every trial
     logits_cal, logits_val = split2(logits, n_data_conf, n_data_val)
     # Prepare the loaders
@@ -275,7 +152,7 @@ def experiment3_trial(model, logits, alpha, kreg, lamda, randomized, n_data_conf
     return top1_avg, top5_avg, cvg_avg, sz_avg
 
 
-def run_trials_experiment3(modelpath, modelname, datasetpath, num_classes, transform, num_trials, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor):
+def evaluate_models(modelpath, modelname, datasetpath, num_classes, transform, num_trials, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor):
     """
     Report the median of top1 and top5 averages 
     """
@@ -302,7 +179,7 @@ def run_trials_experiment3(modelpath, modelname, datasetpath, num_classes, trans
     coverages = np.zeros((num_trials,))
     sizes = np.zeros((num_trials,))
     for i in tqdm(range(num_trials)):
-        top1_avg, top5_avg, cvg_avg, sz_avg = experiment3_trial(
+        top1_avg, top5_avg, cvg_avg, sz_avg = evaluate(
             model, logits, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, naive_bool, fixed_bool)
         top1s[i] = top1_avg
         top5s[i] = top5_avg
@@ -314,9 +191,9 @@ def run_trials_experiment3(modelpath, modelname, datasetpath, num_classes, trans
     return np.median(top1s), np.median(top5s), np.median(coverages), np.median(sizes), mad(top1s), mad(top5s), mad(coverages), mad(sizes)
 
 
-def save_experiment3_trials(model_info_file, datapath, num_classes, alphas, predictors, kregs, lamdas,
-                            randomized, total_conf, pct_cal, pct_val, bsz,
-                            image_size, num_trials, pct_paramtune, pretrained=True):
+def create_df_evaluation(model_info_file, datapath, num_classes, alphas, predictors, kregs, lamdas,
+                         randomized, total_conf, pct_cal, pct_val, bsz,
+                         image_size, num_trials, pct_paramtune, pretrained=True):
     """
     This function receive as parameter information that will be needed to run the experiment, 
     such as the values of tunning parameters (alphas, lambdas)
@@ -348,8 +225,8 @@ def save_experiment3_trials(model_info_file, datapath, num_classes, alphas, pred
             f'Model: {_modelname} | Desired coverage: {1-alpha} | Predictor: {predictor}')
 
         #out = experiment(modelname, datasetpath, num_trials,params[i][1], kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor)
-        out = run_trials_experiment3(os.path.join(modelinfo[1], modelinfo[0]), modelinfo[2], datapath, num_classes, transform, num_trials, alpha, kreg, lamda,
-                                     randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor)
+        out = evaluate_models(os.path.join(modelinfo[1], modelinfo[0]), modelinfo[2], datapath, num_classes, transform, num_trials, alpha, kreg, lamda,
+                              randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor)
         dfs.append(pd.DataFrame.from_dict({"Model": [_modelname],
                                            "Predictor": [predictor],
                                            "Top1": [np.round(out[0], 3)],
@@ -362,20 +239,15 @@ def save_experiment3_trials(model_info_file, datapath, num_classes, alphas, pred
     df = pd.concat(dfs)
     return df
 
-# exp-4
-# Returns a dataframe with:
-# 1) Set sizes for all test-time examples.
-# 2) topk for each example, where topk means which score was correct.
-
-
-# Experiment 5
 # report median size-stratified coverage violation of RAPS and APS
 # Returns a dataframe with:
 # 1) Set sizes for all test-time examples.
 # 2) topk for each example, where topk means which score was correct.
+
+
 def get_worst_violation(modelpath, modelname,  datasetpath, transform, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, num_classes, pretrained):
     """
-
+    modelpath
     """
     # Data Loading
     logits = get_logits_dataset(
@@ -406,7 +278,7 @@ def get_worst_violation(modelpath, modelname,  datasetpath, transform, alpha, st
     return aps_worst_violation, raps_worst_violation
 
 
-def run_experiment5_trails(modelpath, modelname, datasetpath, num_classes, transform, num_trials, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, pretrained=True):
+def obtain_models_violation(modelpath, modelname, datasetpath, num_classes, transform, num_trials, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, pretrained=True):
     # Data Loading
     logits = get_logits_dataset(
         modelpath, modelname, datasetpath, transform, bsz, num_classes, pretrained)
@@ -428,7 +300,7 @@ def run_experiment5_trails(modelpath, modelname, datasetpath, num_classes, trans
     return np.median(aps_violations), np.median(raps_violations)
 
 
-def save_experiment5_trials(model_info_file, datasetpath, num_classes, total_conf, pct_cal, pct_val, alphas, randomized, bsz, image_size, num_trials, strata, pct_paramtune):
+def create_df_violation(model_info_file, datasetpath, num_classes, total_conf, pct_cal, pct_val, alphas, randomized, bsz, image_size, num_trials, strata, pct_paramtune):
     """ 
     Adaptiveness results after automatically tuning lambda.
     Report median size-stratified coverage violation (eq. 5 in https://arxiv.org/pdf/2009.14193.pdf) of RAPS and APS.
@@ -447,7 +319,7 @@ def save_experiment5_trials(model_info_file, datasetpath, num_classes, total_con
         modelinfo, alpha = params[i]
         _modelname = modelinfo[0].replace('.pth', '')
         print(f'Model: {_modelname} | Desired coverage: {1-alpha}')
-        APS_violation_median, RAPS_violation_median = run_experiment5_trails(os.path.join(
+        APS_violation_median, RAPS_violation_median = obtain_models_violation(os.path.join(
             modelinfo[1], modelinfo[0]), modelinfo[2], datasetpath, num_classes, transform, num_trials, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz)
         dfs.append({"Model": _modelname,
                     "alpha": alpha,
