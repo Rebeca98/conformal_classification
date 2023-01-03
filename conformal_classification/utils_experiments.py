@@ -73,3 +73,5 @@ def build_model_for_cp(model_path, architecture, num_classes, pretrained=True):
         model.load_state_dict(pretrained_weights['model_state_dict'])
     model.eval()
     return model
+
+

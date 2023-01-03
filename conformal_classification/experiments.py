@@ -9,6 +9,7 @@ import torchvision.transforms as transforms
 import torchvision.transforms as tf
 import torch.utils.data as tdata
 import torch
+from collections import defaultdict
 #import matplotlib.pyplot as plt
 import numpy as np
 #from utils import *
@@ -58,6 +59,8 @@ def sizes_topk(modelpath, modelname, datasetpath, num_classes,
     #df = pd.DataFrame(columns=['model', 'predictor', 'size', 'topk', 'lamda'])
     #dfs = []
     # Perform experiment
+    topk_dict = defaultdict(list)
+
     for i, (logit, target) in tqdm(enumerate(loader_val)):
         # compute output
         # This is a 'dummy model' which takes logits, for efficiency.
@@ -66,9 +69,11 @@ def sizes_topk(modelpath, modelname, datasetpath, num_classes,
         size = np.array([x.size for x in S])
         I, _, _ = sort_sum(logit.numpy())
         topk = np.where((I - target.view(-1, 1).numpy()) == 0)[1]+1
+        topk_dict[f'{target}-topk'].append(topk)
+        topk_dict[f'{target}-size'].append(size)
 
     #df = pd.concat(dfs)
-    return topk, size
+    return topk, size, topk_dict
 
 
 def create_df_sizes_topk(model_info_file, datapath, num_classes, alphas, predictors, lambdas, kregs,
@@ -101,14 +106,15 @@ def create_df_sizes_topk(model_info_file, datapath, num_classes, alphas, predict
         _modelname = modelinfo[0].replace('.pth', '')
         print(
             f'Model: {_modelname} | Desired coverage: {1-alpha} | Predictor: {predictor} | Lambda = {lamda}')
-        topk, size = sizes_topk(os.path.join(modelinfo[1], modelinfo[0]), modelinfo[2], datapath, num_classes, transform,
-                                alpha, kreg, lamda, randomized, n_data_conf, n_data_val, bsz, predictor, pretrained)
-        dfs.append(pd.DataFrame.from_dict({'model': _modelname,
-                                           'predictor': predictor,
-                                           'size': size,
-                                           'topk': topk,
-                                           'lamda': lamda,
-                                           'kreg': kreg
+        topk, size, topk_dict = sizes_topk(os.path.join(modelinfo[1], modelinfo[0]), modelinfo[2], datapath, num_classes, transform,
+                                           alpha, kreg, lamda, randomized, n_data_conf, n_data_val, bsz, predictor, pretrained)
+        dfs.append(pd.DataFrame.from_dict({'model': [_modelname],
+                                           'predictor': [predictor],
+                                           'size': [size],
+                                           'topk': [topk],
+                                           'lamda': [lamda],
+                                           'kreg': [kreg],
+                                           'dict': [topk_dict]
                                            }))
 
     df = pd.concat(dfs)
@@ -229,13 +235,13 @@ def create_df_evaluation(model_info_file, datapath, num_classes, alphas, predict
                               randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor)
         dfs.append(pd.DataFrame.from_dict({"Model": [_modelname],
                                            "Predictor": [predictor],
-                                           "Top1": [np.round(out[0], 3)],
-                                           "Top5": [np.round(out[1], 3)],
+                                           "Top1": [out[0]],
+                                           "Top5": [out[1]],
                                            "alpha": [alpha],
                                            "kreg": [kreg],
                                            "lamda": [lamda],
-                                           "Coverage": [np.round(out[2], 3)],
-                                           "Size": [np.round(out[3], 3)]}))
+                                           "Coverage": [out[2]],
+                                           "Size": [out[3]]}))
     df = pd.concat(dfs)
     return df
 
@@ -245,7 +251,9 @@ def create_df_evaluation(model_info_file, datapath, num_classes, alphas, predict
 # 2) topk for each example, where topk means which score was correct.
 
 
-def get_worst_violation(modelpath, modelname,  datasetpath, transform, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, num_classes, pretrained):
+def get_worst_violation(modelpath, modelname,  datasetpath, transform, alpha,
+                        strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz,
+                        num_classes, pretrained, lamda_criterion='size'):
     """
     modelpath
     """
@@ -266,7 +274,7 @@ def get_worst_violation(modelpath, modelname,  datasetpath, transform, alpha, st
                                num_classes, pretrained).to(device)
     # Conformalize the model with the APS parameter choice
     conformal_model = ConformalModelLogits(
-        model, calib_loader, alpha=alpha, kreg=0, lamda=0, randomized=randomized, allow_zero_sets=True, naive=False)
+        model, calib_loader, alpha=alpha, kreg=0, lamda=0, randomized=randomized, allow_zero_sets=True, naive=False, lamda_criterion='size', strata=strata)
     aps_worst_violation = get_violation(
         conformal_model, val_loader, strata, alpha)
     # Conformalize the model with an optimal parameter choice
@@ -293,7 +301,7 @@ def obtain_models_violation(modelpath, modelname, datasetpath, num_classes, tran
     raps_violations = np.zeros((num_trials,))
     for i in tqdm(range(num_trials)):
         aps_violations[i], raps_violations[i] = get_worst_violation(
-            modelname, datasetpath, transform, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz)
+            modelpath, modelname, datasetpath, transform, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, num_classes, pretrained)
         print(
             f'\n\tAPS Violation: {np.median(aps_violations[0:i+1]):.3f}, RAPS Violation: {np.median(raps_violations[0:i+1]):.3f}\033[F', end='')
     print('')
@@ -321,10 +329,10 @@ def create_df_violation(model_info_file, datasetpath, num_classes, total_conf, p
         print(f'Model: {_modelname} | Desired coverage: {1-alpha}')
         APS_violation_median, RAPS_violation_median = obtain_models_violation(os.path.join(
             modelinfo[1], modelinfo[0]), modelinfo[2], datasetpath, num_classes, transform, num_trials, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz)
-        dfs.append({"Model": _modelname,
-                    "alpha": alpha,
-                    "APS violation": APS_violation_median,
-                    "RAPS violation": RAPS_violation_median})
+        dfs.append(pd.DataFrame.from_dict({"Model": [_modelname],
+                                           "alpha": [alpha],
+                                           "APS violation": [APS_violation_median],
+                                           "RAPS violation": [RAPS_violation_median]}))
 
     df = pd.concat(dfs)
     return df

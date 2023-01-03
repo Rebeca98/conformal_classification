@@ -119,9 +119,9 @@ def coverage_size(S, targets):
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k
     output: logits of the Neural network model
-        e.g. for one element of the batch and 14 classes:  
-                                [[-2.6332984 -2.7642944 -2.3948145 -4.4933996 -4.251026  -3.2615488
-                                    -2.8112233 -3.851386  -3.2255957 -3.7641408 -5.852391  -4.285244
+        e.g. for one element of the batch and 20 classes:  
+                                [[-2.6332984 -2.7642944 -2.3948205 -4.4933996 -4.251026  -3.2615488
+                                    -2.8112233 -3.851386  -3.2255957 -3.7642008 -5.852391  -4.285244
                                     -4.342262  -3.9740272]]
     target: true label from model
         e.g. for a batch_size=2 target: torch.tensor([13,2])
@@ -185,7 +185,7 @@ def get_model(modelname='efficientnet_b0', pretrained=True):
     return model
 
 
-def build_model_for_cp(model_path, modelname='efficientnet_b0', num_classes=14, pretrained=True):
+def build_model_for_cp(model_path, modelname='efficientnet_b0', num_classes=20, pretrained=True):
     """
     build model for training
     """
@@ -202,7 +202,7 @@ def build_model_for_cp(model_path, modelname='efficientnet_b0', num_classes=14, 
 # Computes logits and targets from a model and loader
 
 
-def get_logits_targets(model, loader, num_classes=14):
+def get_logits_targets(model, loader, num_classes=20):
     # 1000 classes in Imagenet.
     logits = torch.zeros((len(loader.dataset), num_classes))
     labels = torch.zeros((len(loader.dataset),))
@@ -222,7 +222,7 @@ def get_logits_targets(model, loader, num_classes=14):
 # this function is used only in experiments
 
 
-def get_logits_dataset(model_path, modelname, datasetpath, transform, bsz, num_classes=14, pretrained=True):
+def get_logits_dataset(model_path, modelname, datasetpath, transform, bsz, num_classes=20, pretrained=True):
     """
     datasetpath: calibration dataset path
     """

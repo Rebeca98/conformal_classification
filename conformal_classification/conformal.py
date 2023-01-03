@@ -46,7 +46,7 @@ class ConformalModel(nn.Module):
         pendiente
     """
 
-    def __init__(self, model, calib_loader, alpha, kreg=None, lamda=None, randomized=True, allow_zero_sets=False, pct_paramtune=0.3, batch_size=32, lamda_criterion='size', num_classes=14):
+    def __init__(self, model, calib_loader, alpha, kreg=None, lamda=None, randomized=True, allow_zero_sets=False, pct_paramtune=0.3, batch_size=32, lamda_criterion='size', num_classes=20,strata = [[0,1],[2,3],[4,6],[7,10],[11,20]]):
         """
         Parameters
         ----------
@@ -69,7 +69,7 @@ class ConformalModel(nn.Module):
         # parameter optimizing (paramtuning)
         if kreg == None or lamda == None:
             kreg, lamda, calib_logits = pick_parameters(
-                model, calib_logits, alpha, kreg, lamda, randomized, allow_zero_sets, pct_paramtune, batch_size, lamda_criterion)
+                model, calib_logits, alpha, kreg, lamda, randomized, allow_zero_sets, pct_paramtune, batch_size, lamda_criterion,strata)
         # pendiente
         self.penalties = np.zeros((1, self.num_classes))
         self.penalties[:, kreg:] += lamda
@@ -121,7 +121,7 @@ def conformal_calibration(cmodel, calib_loader):
 # Temperature scaling
 
 
-def platt(cmodel, calib_loader, max_iters=10, lr=0.01, epsilon=0.01, num_classes=14):
+def platt(cmodel, calib_loader, max_iters=10, lr=0.01, epsilon=0.01, num_classes=20):
     """
     Creates a Dataset from a json file.
 
@@ -193,7 +193,7 @@ class ConformalModelLogits(nn.Module):
         pendiente
     """
 
-    def __init__(self, model, calib_loader, alpha, kreg=None, lamda=None, randomized=True, allow_zero_sets=False, naive=False, LAC=False, pct_paramtune=0.3, batch_size=32, lamda_criterion='size'):
+    def __init__(self, model, calib_loader, alpha, kreg=None, lamda=None, randomized=True, allow_zero_sets=False, naive=False, LAC=False, pct_paramtune=0.3, batch_size=32, lamda_criterion='size', strata = [[0,1],[2,3],[4,6],[7,10],[11,20]]):
         """
         Parameters
         ----------
@@ -209,10 +209,11 @@ class ConformalModelLogits(nn.Module):
         self.LAC = LAC
         self.allow_zero_sets = allow_zero_sets
         self.T = platt_logits(self, calib_loader)
+        self.strata = strata
 
         if (kreg == None or lamda == None) and not naive and not LAC:
             kreg, lamda, calib_logits = pick_parameters(
-                model, calib_loader.dataset, alpha, kreg, lamda, randomized, allow_zero_sets, pct_paramtune, batch_size, lamda_criterion)
+                model, calib_loader.dataset, alpha, kreg, lamda, randomized, allow_zero_sets, pct_paramtune, batch_size, lamda_criterion, strata)
             calib_loader = tdata.DataLoader(
                 calib_logits, batch_size=batch_size, shuffle=False, pin_memory=True)
 
@@ -450,7 +451,7 @@ def pick_lamda_size(model, paramtune_loader, alpha, kreg, randomized, allow_zero
     return lamda_star
 
 
-def pick_lamda_adaptiveness(model, paramtune_loader, alpha, kreg, randomized, allow_zero_sets, strata=[[0, 1], [2, 3], [4, 6], [7, 10], [11, 100], [101, 1000]]):
+def pick_lamda_adaptiveness(model, paramtune_loader, alpha, kreg, randomized, allow_zero_sets, strata):
     # Calculate lamda_star
     lamda_star = 0
     best_violation = 1
@@ -467,7 +468,7 @@ def pick_lamda_adaptiveness(model, paramtune_loader, alpha, kreg, randomized, al
     return lamda_star
 
 
-def pick_parameters(model, calib_logits, alpha, kreg, lamda, randomized, allow_zero_sets, pct_paramtune, batch_size, lamda_criterion):
+def pick_parameters(model, calib_logits, alpha, kreg, lamda, randomized, allow_zero_sets, pct_paramtune, batch_size, lamda_criterion, strata):
     num_paramtune = int(np.ceil(pct_paramtune * len(calib_logits)))
     paramtune_logits, calib_logits = tdata.random_split(
         calib_logits, [num_paramtune, len(calib_logits)-num_paramtune])
@@ -484,12 +485,13 @@ def pick_parameters(model, calib_logits, alpha, kreg, lamda, randomized, allow_z
                 model, paramtune_loader, alpha, kreg, randomized, allow_zero_sets)
         elif lamda_criterion == "adaptiveness":
             lamda = pick_lamda_adaptiveness(
-                model, paramtune_loader, alpha, kreg, randomized, allow_zero_sets)
+                model, paramtune_loader, alpha, kreg, randomized, allow_zero_sets, strata)
     return kreg, lamda, calib_logits
 
 
 def get_violation(cmodel, loader_paramtune, strata, alpha):
-    df = pd.DataFrame(columns=['size', 'correct'])
+    #df = pd.DataFrame(columns=['size', 'correct'])
+    dfs = []
     for logit, target in loader_paramtune:
         # compute output
         # This is a 'dummy model' which takes logits, for efficiency.
@@ -501,8 +503,9 @@ def get_violation(cmodel, loader_paramtune, strata, alpha):
         for j in range(correct.shape[0]):
             # for each set calculate the correctness
             correct[j] = int(target[j] in list(S[j]))
-        batch_df = pd.DataFrame({'size': size, 'correct': correct})
-        df = df.append(batch_df, ignore_index=True)
+        batch_df = pd.DataFrame.from_dict({'size': size, 'correct': correct})
+        dfs.append(batch_df)
+    df = pd.concat(dfs)
     wc_violation = 0
     for stratum in strata:
         temp_df = df[(df['size'] >= stratum[0]) & (df['size'] <= stratum[1])]
