@@ -75,8 +75,8 @@ def sizes_topk(modelpath, modelname, datasetpath, num_classes,
     #df = pd.concat(dfs)
     return topk, size, topk_dict
 
-
-def create_df_sizes_topk(model_info_file, datapath, num_classes, alphas, predictors, lambdas, kregs,
+# antes: create_df_sizes_topk
+def create_sizes_topk_table(model_info_file, datapath, num_classes, alphas, predictors, lambdas, kregs,
                          randomized, total_conf, pct_cal, pct_val, bsz,
                          image_size, pretrained=True):
     """
@@ -124,6 +124,19 @@ def create_df_sizes_topk(model_info_file, datapath, num_classes, alphas, predict
 
 
 def evaluate(model, logits, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, naive_bool, fixed_bool):
+    """
+    Report the median of top1 and top5 averages 
+
+    Args:
+        model (str): path to the trained model weights
+        architecture (str): neural network architecture used for the classification model
+        calibration_dataset_path (str): path to calibration dataset 
+        num_classes (int): number of classes refers to the distinct categories or labels that the model aims to predict
+    
+    Returns:
+        tuple: the values inlcude the median of top1's, top5's, coverages and sizes, 
+        median_abs_deviation of the top1s, top5s, coverages and sizes
+    """
     # A new random split for every trial
     logits_cal, logits_val = split2(logits, n_data_conf, n_data_val)
     # Prepare the loaders
@@ -158,9 +171,19 @@ def evaluate(model, logits, alpha, kreg, lamda, randomized, n_data_conf, n_data_
     return top1_avg, top5_avg, cvg_avg, sz_avg
 
 
-def evaluate_models(modelpath, modelname, datasetpath, num_classes, transform, num_trials, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor):
+def evaluate_models(model_path, architecture, calibration_dataset_path, num_classes, transform, num_trials, alpha, kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor):
     """
     Report the median of top1 and top5 averages 
+
+    Args:
+        model_path (str): path to the trained model weights
+        architecture (str): neural network architecture used for the classification model
+        calibration_dataset_path (str): path to calibration dataset 
+        num_classes (int): number of classes refers to the distinct categories or labels that the model aims to predict
+    
+    Returns:
+        tuple: the values inlcude the median of top1's, top5's, coverages and sizes, 
+        median_abs_deviation of the top1s, top5s, coverages and sizes
     """
     # Experiment logic
     naive_bool = predictor == 'Naive'
@@ -171,12 +194,12 @@ def evaluate_models(modelpath, modelname, datasetpath, num_classes, transform, n
 
     # Data Loading
     #logits = get_logits_dataset(modelname, datasetname, datasetpath)
-    logits = get_logits_dataset(modelpath,
-                                modelname, datasetpath, transform, bsz, num_classes, pretrained=True)
+    logits = get_logits_dataset(model_path,
+                                architecture, calibration_dataset_path, transform, bsz, num_classes, pretrained=True)
 
     # Instantiate and wrap model
     #model = get_model(modelname)
-    model = build_model_for_cp(modelpath, modelname,
+    model = build_model_for_cp(model_path, architecture,
                                num_classes, pretrained=True).to(device)
 
     # Perform experiment
@@ -196,17 +219,18 @@ def evaluate_models(modelpath, modelname, datasetpath, num_classes, transform, n
     print('')
     return np.median(top1s), np.median(top5s), np.median(coverages), np.median(sizes), mad(top1s), mad(top5s), mad(coverages), mad(sizes)
 
-
-def create_df_evaluation(model_info_file, datapath, num_classes, alphas, predictors, kregs, lamdas,
+# antes: create_df_evaluation
+def create_evaluation_table(model_info_file, calibration_dataset_path, num_classes, alphas, predictors, kregs, lamdas,
                          randomized, total_conf, pct_cal, pct_val, bsz,
                          image_size, num_trials, pct_paramtune, pretrained=True):
     """
     This function receive as parameter information that will be needed to run the experiment, 
     such as the values of tunning parameters (alphas, lambdas)
-    model_info: dict
+    model_info_file: dict
     modelnames: iterable (object that can be iterated)
         This iterable contain models we want to evaluate. This names must corresponde to the json file used for conformal testing
         e.g. ['model-1','model-2']
+    calib_data_dir: data 
     lambdas: list
         list of lambdas
     """
@@ -216,8 +240,11 @@ def create_df_evaluation(model_info_file, datapath, num_classes, alphas, predict
     cudnn.benchmark = True
 
     modelnames = model_info_file['models'].keys()
-    modelnames_arch = [(model_info_file['models'][name]['file'], model_info_file['models'][name]['path'],
-                        model_info_file['models'][name]['architecture']) for name in modelnames]
+    modelnames_arch = [(model_info_file['models'][name]['file'],
+                        model_info_file['models'][name]['architecture']) 
+                        for name in modelnames
+                       ]
+    #modelnames_arch = [models_dir]
     transform = get_calib_transform(image_size)
     params = list(itertools.product(
         modelnames_arch, alphas, kregs, lamdas, predictors))
@@ -231,8 +258,20 @@ def create_df_evaluation(model_info_file, datapath, num_classes, alphas, predict
             f'Model: {_modelname} | Desired coverage: {1-alpha} | Predictor: {predictor}')
 
         #out = experiment(modelname, datasetpath, num_trials,params[i][1], kreg, lamda, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor)
-        out = evaluate_models(os.path.join(modelinfo[1], modelinfo[0]), modelinfo[2], datapath, num_classes, transform, num_trials, alpha, kreg, lamda,
-                              randomized, n_data_conf, n_data_val, pct_paramtune, bsz, predictor)
+        out = evaluate_models(modelinfo[0],
+                            modelinfo[1], 
+                            calibration_dataset_path, 
+                            num_classes, transform, 
+                            num_trials, 
+                            alpha, 
+                            kreg, 
+                            lamda,
+                            randomized, 
+                            n_data_conf, 
+                            n_data_val, 
+                            pct_paramtune, 
+                            bsz, 
+                            predictor)
         dfs.append(pd.DataFrame.from_dict({"Model": [_modelname],
                                            "Predictor": [predictor],
                                            "Top1": [out[0]],
@@ -287,14 +326,14 @@ def get_worst_violation(modelpath, modelname,  datasetpath, transform, alpha,
 
 
 def obtain_models_violation(modelpath, modelname, datasetpath, num_classes, transform, num_trials, alpha, strata, randomized, n_data_conf, n_data_val, pct_paramtune, bsz, pretrained=True):
-    # Data Loading
+    # obtain logits
     logits = get_logits_dataset(
         modelpath, modelname, datasetpath, transform, bsz, num_classes, pretrained)
 
     # Instantiate and wrap model
     #model = get_model(modelname)
-    build_model_for_cp(modelpath, modelname,
-                       num_classes, pretrained).to(device)
+    #build_model_for_cp(modelpath, modelname,
+    #                   num_classes, pretrained).to(device)
 
     # Perform experiment
     aps_violations = np.zeros((num_trials,))
@@ -307,8 +346,8 @@ def obtain_models_violation(modelpath, modelname, datasetpath, num_classes, tran
     print('')
     return np.median(aps_violations), np.median(raps_violations)
 
-
-def create_df_violation(model_info_file, datasetpath, num_classes, total_conf, pct_cal, pct_val, alphas, randomized, bsz, image_size, num_trials, strata, pct_paramtune):
+# create_df_violation
+def create_violation_table(model_info_file, datasetpath, num_classes, total_conf, pct_cal, pct_val, alphas, randomized, bsz, image_size, num_trials, strata, pct_paramtune):
     """ 
     Adaptiveness results after automatically tuning lambda.
     Report median size-stratified coverage violation (eq. 5 in https://arxiv.org/pdf/2009.14193.pdf) of RAPS and APS.

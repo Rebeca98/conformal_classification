@@ -71,6 +71,8 @@ def build_model_for_cp(model_path, architecture, num_classes, pretrained=True):
         model.classifier[1] = nn.Linear(
             in_features=num_ftrs, out_features=num_classes)
         model.load_state_dict(pretrained_weights['model_state_dict'])
+    else:
+        return
     model.eval()
     return model
 

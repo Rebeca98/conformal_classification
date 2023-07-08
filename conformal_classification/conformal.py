@@ -120,7 +120,7 @@ def conformal_calibration(cmodel, calib_loader):
 
 # Temperature scaling
 
-
+# todo: change name to Temperature scaling
 def platt(cmodel, calib_loader, max_iters=10, lr=0.01, epsilon=0.01, num_classes=20):
     """
     Creates a Dataset from a json file.
@@ -311,6 +311,7 @@ def platt_logits(cmodel, calib_loader, max_iters=10, lr=0.01, epsilon=0.01):
     Dataset
         Instance of the created Dataset
     """
+    # NLL: negative log likelihood
     nll_criterion = nn.CrossEntropyLoss().to(device)
     # weights
     weights = torch.Tensor([1.3]).to(device)
