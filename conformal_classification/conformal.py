@@ -7,7 +7,9 @@ import torch.utils.data as tdata
 import pandas as pd
 import time
 from tqdm import tqdm
-from conformal_classification.utils import validate, get_logits_targets, sort_sum
+from conformal_classification.utils import sort_sum
+from conformal_classification.utils_experiments import validate
+from conformal_classification.utils_experiments import get_logits_targets
 import pdb
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -194,14 +196,6 @@ class ConformalModelLogits(nn.Module):
     """
 
     def __init__(self, model, calib_loader, alpha, kreg=None, lamda=None, randomized=True, allow_zero_sets=False, naive=False, LAC=False, pct_paramtune=0.3, batch_size=32, lamda_criterion='size', strata = [[0,1],[2,3],[4,6],[7,10],[11,20]]):
-        """
-        Parameters
-        ----------
-        data : pandas.DataFrame
-          DataFrame object that make up the dataset.
-        info : dict
-          Information of the dataset.
-        """
         super(ConformalModelLogits, self).__init__()
         self.model = model
         self.alpha = alpha
@@ -216,10 +210,11 @@ class ConformalModelLogits(nn.Module):
                 model, calib_loader.dataset, alpha, kreg, lamda, randomized, allow_zero_sets, pct_paramtune, batch_size, lamda_criterion, strata)
             calib_loader = tdata.DataLoader(
                 calib_logits, batch_size=batch_size, shuffle=False, pin_memory=True)
-
+        # penalties
         self.penalties = np.zeros((1, calib_loader.dataset[0][0].shape[0]))
         if not (kreg == None) and not naive and not LAC:
             self.penalties[:, kreg:] += lamda
+        # Qhat
         self.Qhat = 1-alpha
         # aun no queda claro que es LAC
         if not naive and not LAC:
@@ -233,6 +228,7 @@ class ConformalModelLogits(nn.Module):
                 (scores_cal.shape[0]+1) * (1-alpha)) / scores_cal.shape[0])
 
     def forward(self, logits, randomized=None, allow_zero_sets=None):
+        pdb.set_trace()
         if randomized == None:
             randomized = self.randomized
         if allow_zero_sets == None:
@@ -253,7 +249,7 @@ class ConformalModelLogits(nn.Module):
 
         return logits, S
 
-
+# def conformal_calibration(cmodel, calib_loader):
 def conformal_calibration_logits(cmodel, calib_loader):
     """
     Creates a Dataset from a json file.
@@ -274,6 +270,7 @@ def conformal_calibration_logits(cmodel, calib_loader):
     Dataset
         Instance of the created Dataset
     """
+    pdb.set_trace()
     with torch.no_grad():
         E = np.array([])
         for logits, targets in calib_loader:
@@ -400,7 +397,7 @@ def get_tau(score, target, I, ordered, cumsum, penalty, randomized, allow_zero_s
     if not randomized:
         return tau_nonrandom + penalty[0]
 
-    U = np.random.random()
+    U = np.random.random() #coin
 
     if idx == (0, 0):
         if not allow_zero_sets:
@@ -473,6 +470,7 @@ def pick_parameters(model, calib_logits, alpha, kreg, lamda, randomized, allow_z
     num_paramtune = int(np.ceil(pct_paramtune * len(calib_logits)))
     paramtune_logits, calib_logits = tdata.random_split(
         calib_logits, [num_paramtune, len(calib_logits)-num_paramtune])
+    
     calib_loader = tdata.DataLoader(
         calib_logits, batch_size=batch_size, shuffle=False, pin_memory=True)
     paramtune_loader = tdata.DataLoader(
@@ -490,10 +488,10 @@ def pick_parameters(model, calib_logits, alpha, kreg, lamda, randomized, allow_z
     return kreg, lamda, calib_logits
 
 
-def get_violation(cmodel, loader_paramtune, strata, alpha):
+def get_violation(cmodel, val_loader, strata, alpha):
     #df = pd.DataFrame(columns=['size', 'correct'])
     dfs = []
-    for logit, target in loader_paramtune:
+    for logit, target in val_loader:
         # compute output
         # This is a 'dummy model' which takes logits, for efficiency.
         output, S = cmodel(logit)
@@ -503,7 +501,7 @@ def get_violation(cmodel, loader_paramtune, strata, alpha):
         correct = np.zeros_like(size)  # the same size as the vector of sizes
         for j in range(correct.shape[0]):
             # for each set calculate the correctness
-            correct[j] = int(target[j] in list(S[j]))
+            correct[j] = int(target[j] in list(S[j])) #1
         batch_df = pd.DataFrame.from_dict({'size': size, 'correct': correct})
         dfs.append(batch_df)
     df = pd.concat(dfs)
@@ -514,4 +512,4 @@ def get_violation(cmodel, loader_paramtune, strata, alpha):
             continue
         stratum_violation = abs(temp_df.correct.mean()-(1-alpha))
         wc_violation = max(wc_violation, stratum_violation)
-    return wc_violation  # the violation
+    return wc_violation,df  # the violation
