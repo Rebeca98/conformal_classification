@@ -1,15 +1,17 @@
+
+from tqdm import tqdm
 import numpy as np
+import pandas as pd
+from typing import Tuple
 # Torch
 import torch
 import torch.nn as nn
 import torchvision
-from typing import Tuple
 import torchvision.transforms as transforms
 import torchvision.models as models
 
-from tqdm import tqdm
 import time
-import pandas as pd
+
 
 # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # device = ('mps' if torch.backends.mps.is_available() & torch.backends.mps.is_built() else 'cpu')
@@ -200,7 +202,7 @@ def validate(val_loader, model, print_bool=False):
             N = N + x.shape[0]
             if print_bool:
                 print(f'\rValidation size: {N} | Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) | Cvg@1: {top1.val:.3f} ({top1.avg:.3f}) | Cvg@5: {top5.val:.3f} ({top5.avg:.3f}) | Cvg@RAPS: {coverage.val:.3f} ({coverage.avg:.3f}) | Size@RAPS: {size.val:.3f} ({size.avg:.3f})', end='')
-    return top1.avg, top5.avg, coverage.avg, size.avg  # return top1, top2, coverage, size
+    return top1.avg, top5.avg, coverage.avg, size.avg
 
 
 def coverage_size(S, targets):
@@ -340,3 +342,18 @@ def get_wc_violation(cmodel, val_loader, strata, alpha)-> Tuple[float, pd.DataFr
         stratum_violation = abs(temp_df.correct.mean()-(1-alpha))
         wc_violation = max(wc_violation, stratum_violation)
     return wc_violation # the violation
+
+
+def get_logits_dataset_inference(model, data_path:str, transform:torchvision.transforms.transforms.Compose, bsz:int, num_classes:int)-> torch.utils.data.TensorDataset:
+    """
+    datasetpath: calibration dataset path
+    """
+    # Else we will load our model, run it on the dataset, and save/return the output.
+    dataset = torchvision.datasets.ImageFolder(data_path, transform)
+    loader = torch.utils.data.DataLoader(
+        dataset, batch_size=bsz, shuffle=False, pin_memory=True)
+
+    # Get the logits and targets
+    dataset_logits = get_logits_targets(model, loader, num_classes)
+
+    return dataset_logits

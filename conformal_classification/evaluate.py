@@ -1,17 +1,21 @@
 from tqdm import tqdm
 from collections import defaultdict
+from typing import List,Optional
 import numpy as np
 from scipy.stats import median_abs_deviation as mad
 # Torch
 from typing import Tuple
+import torchvision
 import pandas as pd
 
 import torch.utils.data as tdata
 import torch
 
 from conformal_classification.conformal import ConformalModelLogits
+
+from conformal_classification.utils import get_calib_transform
+from conformal_classification.utils import get_logits_dataset_inference
 from conformal_classification.utils import sort_sum
-#from conformal_classification.utils import split2
 from conformal_classification.utils import build_model_for_cp
 from conformal_classification.utils import validate
 from conformal_classification.utils import get_logits_dataset
@@ -21,7 +25,7 @@ device = ('mps' if torch.backends.mps.is_available() & torch.backends.mps.is_bui
 #device = ('mps' if torch.backends.mps.is_available() & torch.backends.mps.is_built() else 'cpu')
 
 
-def get_logits_model(model_path,model_name,data_path,transform, bsz,num_classes):
+def get_logits_model(model_path:str,model_name:str, data_path:str,transform: torchvision.transforms.transforms.Compose, bsz:int ,num_classes:int):
     """
     Creates a Dataset from a json file.
 
@@ -302,7 +306,8 @@ def evaluate_conformal_prediction(model, cal_logits, test_logits, bsz, alpha, kr
                 }
     df_results = pd.DataFrame(results)
     return df_results
-        
+
+
 
 
 def evaluate_trials(model, cal_logits, test_logits, bsz, num_trials, alpha, kreg, lamda, randomized, allow_zero_sets,  pct_paramtune,  predictor, lamda_criterion,strata,num_classes):
@@ -354,3 +359,146 @@ def evaluate_trials(model, cal_logits, test_logits, bsz, num_trials, alpha, kreg
     results_trials = pd.concat(dfs_results)
     return results_trials
 
+
+#region USER INFERENCE
+def evaluate_and_conformalize_model(model, cal_logits, test_logits, bsz, alpha, randomized, allow_zero_sets,  pct_paramtune,  predictor,strata, num_classes,lamda_criterion='size'):
+        # Conformalize the model
+        # Experiment logic
+    naive_bool = predictor == 'Naive'
+    
+
+    if predictor in ['Naive', 'APS']:
+        lamda_predictor = 0  # No regularization.
+        kreg = 0
+    if predictor in ['RAPS']:
+        lamda_predictor = None  
+        kreg = None
+
+    # A new random split for every trial
+    #logits_cal, logits_val = split2(logits, n_data_conf, n_data_val)
+    # logits_cal, logits_val = tdata.random_split(logits, [n_data_conf, len(
+    #     logits)-n_data_conf])  # A new random split for every trial
+    # # Prepare the loaders
+    loader_cal = torch.utils.data.DataLoader(
+        cal_logits, batch_size=bsz, shuffle=False, pin_memory=True)
+    loader_test = torch.utils.data.DataLoader(
+        test_logits, batch_size=bsz, shuffle=False, pin_memory=True)
+    
+    conformal_model = ConformalModelLogits(model = model, 
+                                            calib_logits_loader = loader_cal, 
+                                            alpha = alpha, 
+                                            kreg = kreg, 
+                                            lamda = lamda_predictor, 
+                                            randomized = randomized,
+                                            allow_zero_sets = allow_zero_sets,
+                                            pct_paramtune = pct_paramtune, 
+                                            naive = naive_bool, 
+                                            batch_size = bsz, 
+                                            lamda_criterion = lamda_criterion,
+                                            strata = strata,
+                                            num_classes=num_classes)
+    
+    top1_avg, top5_avg, cvg_avg, sz_avg = evaluate(cmodel=conformal_model, 
+                                                    loader_val= loader_test)
+    
+    worst_violation,df_size_coverage = get_violation(cmodel=conformal_model, 
+                                                        val_loader=loader_test,
+                                                        strata= strata, 
+                                                        alpha = alpha)
+    df_eval_strata = eval_strata(cmodel = conformal_model,
+                                    val_loader= loader_test, 
+                                    strata = strata, 
+                                    alpha = alpha)
+    
+    results = {'top1_avg': [top1_avg],
+                'top5_avg': [top5_avg],
+                'cvg_avg': [cvg_avg],
+                'sz_avg': [sz_avg],
+                'worst_violation': [worst_violation],
+                'df_size_coverage': [df_size_coverage],
+                'df_eval_strata':[df_eval_strata]
+                }
+    df_results = pd.DataFrame(results)
+    return df_results,conformal_model
+
+
+def conformalize_model(model, cal_logits, bsz, alpha, randomized, allow_zero_sets,  pct_paramtune,  predictor, strata, num_classes, lamda_criterion='size'):
+        # Conformalize the model
+        # Experiment logic
+    naive_bool = predictor == 'Naive'
+    
+
+    if predictor in ['Naive', 'APS']:
+        lamda_predictor = 0  # No regularization.
+        kreg = 0
+    if predictor in ['RAPS']:
+        lamda_predictor = None  
+        kreg = None
+
+
+    # A new random split for every trial
+    #logits_cal, logits_val = split2(logits, n_data_conf, n_data_val)
+    # logits_cal, logits_val = tdata.random_split(logits, [n_data_conf, len(
+    #     logits)-n_data_conf])  # A new random split for every trial
+    # # Prepare the loaders
+    loader_cal = torch.utils.data.DataLoader(
+        cal_logits, batch_size=bsz, shuffle=False, pin_memory=True)
+  
+    conformal_model = ConformalModelLogits(model = model, 
+                                            calib_logits_loader = loader_cal, 
+                                            alpha = alpha, 
+                                            kreg = kreg, 
+                                            lamda = lamda_predictor, 
+                                            randomized = randomized,
+                                            allow_zero_sets = allow_zero_sets,
+                                            pct_paramtune = pct_paramtune, 
+                                            naive = naive_bool, 
+                                            batch_size = bsz, 
+                                            lamda_criterion = lamda_criterion,
+                                            strata = strata,
+                                            num_classes=num_classes)
+    
+    
+
+    return conformal_model
+
+
+
+def cp_inference(trained_model, num_classes:int,alpha:float, image_size:int, predictor:str,
+                    data_path_calibration:str, bsz:int, randomized:bool,allow_zero_sets:bool,
+                     pct_paramtune:float, lamda_criterion:str='size', strata:List[List[int]] = None, model_evaluation:bool=True,data_path_test:str=None):
+    transform = get_calib_transform(image_size)
+    cal_logits = get_logits_dataset_inference(trained_model, data_path = data_path_calibration, transform = transform, bsz = bsz, num_classes=num_classes)
+    
+    if model_evaluation: 
+        test_logits = get_logits_dataset_inference(trained_model, data_path = data_path_test, transform = transform, bsz = bsz, num_classes=num_classes)
+    
+    
+        df_result, conformalized_model = evaluate_and_conformalize_model(trained_model, 
+                                        model_evaluation = model_evaluation, 
+                                        cal_logits = cal_logits, 
+                                        test_logits = test_logits, 
+                                        bsz = bsz, 
+                                        alpha = alpha, 
+                                        randomized = randomized, 
+                                        allow_zero_sets = allow_zero_sets,  
+                                        pct_paramtune = pct_paramtune,  
+                                        predictor = predictor, 
+                                        lamda_criterion =lamda_criterion,
+                                        strata = strata,
+                                        num_classes = num_classes)
+        return df_result,conformalized_model
+    else:
+        conformalized_model = conformalize_model(trained_model, 
+                                        cal_logits = cal_logits, 
+                                        bsz = bsz, 
+                                        alpha = alpha, 
+                                        randomized = randomized, 
+                                        allow_zero_sets = allow_zero_sets,  
+                                        pct_paramtune = pct_paramtune,  
+                                        predictor = predictor, 
+                                        lamda_criterion =lamda_criterion,
+                                        strata = strata,
+                                        num_classes = num_classes)
+        return conformalized_model
+#endregion
