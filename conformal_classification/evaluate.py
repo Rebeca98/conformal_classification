@@ -298,7 +298,8 @@ def evaluate_conformal_prediction(model, cal_logits, test_logits, bsz, alpha, kr
                 'sz_avg': [sz_avg],
                 'worst_violation': [worst_violation],
                 'df_size_coverage': [df_size_coverage],
-                'df_eval_strata':[df_eval_strata]
+                'df_eval_strata':[df_eval_strata],
+                'lamda_criterion':[lamda_criterion]
                 }
     df_results = pd.DataFrame(results)
     return df_results
