@@ -4,11 +4,14 @@ import numpy as np
 import pandas as pd
 from typing import Tuple
 # Torch
+import os
+from PIL import Image
 import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 import torchvision.models as models
+from torch.utils.data import Dataset, DataLoader
 
 import time
 
@@ -17,6 +20,22 @@ import time
 # device = ('mps' if torch.backends.mps.is_available() & torch.backends.mps.is_built() else 'cpu')
 # device = 'cpu'
 #device = ('cuda' if torch.cuda.is_available() else 'cpu')
+class UnlabeledImageDataset(Dataset):
+    def __init__(self, image_dir, transform=None):
+        self.image_dir = image_dir
+        self.transform = transform
+        self.image_paths = [os.path.join(image_dir, fname) for fname in os.listdir(image_dir) if fname.endswith(('png', 'jpg', 'jpeg'))]
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+        return image, img_path  # Retorna también el nombre del archivo
+    
 device = ('mps' if torch.backends.mps.is_available() & torch.backends.mps.is_built() else 'cpu')
 
 
@@ -344,7 +363,7 @@ def get_wc_violation(cmodel, val_loader, strata, alpha)-> Tuple[float, pd.DataFr
     return wc_violation # the violation
 
 
-def get_logits_dataset_inference(model, data_path:str, transform:torchvision.transforms.transforms.Compose, bsz:int, num_classes:int)-> torch.utils.data.TensorDataset:
+def get_logits_dataset_inference_w_labels(model, data_path:str, transform:torchvision.transforms.transforms.Compose, bsz:int, num_classes:int)-> torch.utils.data.TensorDataset:
     """
     datasetpath: calibration dataset path
     """
@@ -357,3 +376,46 @@ def get_logits_dataset_inference(model, data_path:str, transform:torchvision.tra
     dataset_logits = get_logits_targets(model, loader, num_classes)
 
     return dataset_logits
+
+# for inference
+def get_logits(model, loader, num_classes)-> torch.utils.data.TensorDataset:
+    """
+
+
+    output: torch.utils.data.TensorDataset
+    """
+    model.to(device) 
+    model.eval()
+    logits = torch.zeros((len(loader.dataset), num_classes), device=device)
+    #labels = torch.zeros((len(loader.dataset),),device=device)
+    i = 0
+    print(f'Computing logits for model (only happens once).')
+    filenames_list = []
+    with torch.no_grad():
+        for x, filenames in tqdm(loader):
+        #for x in tqdm(loader):
+            batch_logits = model(x.to(device))  # .to(device)#.detach().cpu()
+            logits[i:(i+x.shape[0]), :] = batch_logits
+            i = i + x.shape[0]
+            filenames_list.extend(filenames)
+
+    # 
+    # Construct the dataset
+    dataset_logits = torch.utils.data.TensorDataset(logits)
+    return dataset_logits,filenames_list
+
+
+def get_logits_dataset_inference(model, data_path:str, transform:torchvision.transforms.transforms.Compose, bsz:int, num_classes:int)-> torch.utils.data.TensorDataset:
+    """
+    datasetpath: calibration dataset path
+    """
+    # Else we will load our model, run it on the dataset, and save/return the output.
+    #dataset = torchvision.datasets.ImageFolder(data_path, transform)
+    #loader = torch.utils.data.DataLoader(dataset, batch_size=bsz, shuffle=False, pin_memory=True)
+    dataset = UnlabeledImageDataset(image_dir=data_path, transform=transform)
+    dataset_loader = DataLoader(dataset, batch_size=1, shuffle=False)
+    # Get the logits and targets
+
+    dataset_logits, filenames_list = get_logits(model, dataset_loader, num_classes)
+
+    return dataset_logits,filenames_list

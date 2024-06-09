@@ -92,7 +92,8 @@ class ConformalModelLogits(nn.Module):
                 allow_zero_sets=allow_zero_sets,
                 pct_paramtune=pct_paramtune,
                 lamda_criterion=lamda_criterion,
-                strata=strata
+                strata=strata,
+                num_classes=self.num_classes
             )
 
             calib_logits_loader = calib_logits.dataset
@@ -423,7 +424,8 @@ def pick_kreg(paramtune_logits_subset:Subset, alpha:float):
     """
     logging.info('Pick k_reg')
     gt_locs_kstar = []
-    paramtune_loader = DataLoader(paramtune_logits_subset)
+    #paramtune_loader = DataLoader(paramtune_logits_subset)
+    paramtune_loader = paramtune_logits_subset.dataset
     for x, targets in tqdm(paramtune_loader):
         x, targets = x.to(device), targets.to(device)
         for i in range(x.shape[0]):
@@ -443,7 +445,7 @@ def pick_kreg(paramtune_logits_subset:Subset, alpha:float):
 
 
 def pick_lamda_size(model, paramtune_logits_subset:Subset, alpha:float, 
-                    kreg:int, randomized:bool, allow_zero_sets:bool)-> float:
+                    kreg:int, randomized:bool, allow_zero_sets:bool, num_classes:int)-> float:
     """
     Pick lambda based on prediction regions size. 
     We test with grid of lambda values to obtain the smallest 
@@ -473,8 +475,8 @@ def pick_lamda_size(model, paramtune_logits_subset:Subset, alpha:float,
         lambda value where we obtain the smallest size.
     """
     logging.info('Pick lambda size')
-    #paramtune_loader = paramtune_logits_subset.dataset
-    paramtune_loader = DataLoader(paramtune_logits_subset)
+    paramtune_loader = paramtune_logits_subset.dataset
+    #paramtune_loader = DataLoader(paramtune_logits_subset)
     best_size = iter(paramtune_loader).__next__()[0][1].shape[0]  
     for temp_lam in [0.001, 0.01, 0.1, 0.2, 0.5]:
         conformal_model = ConformalModelLogits(
@@ -485,6 +487,7 @@ def pick_lamda_size(model, paramtune_logits_subset:Subset, alpha:float,
             lamda=temp_lam, 
             randomized=randomized, 
             allow_zero_sets=allow_zero_sets, 
+            num_classes=num_classes,
             naive=False,
             pct_paramtune=None,
             lamda_criterion=None, 
@@ -503,7 +506,7 @@ def pick_lamda_size(model, paramtune_logits_subset:Subset, alpha:float,
 
 
 def pick_lamda_adaptiveness(model, paramtune_logits_subset:Subset, alpha:float, 
-                            kreg:int, randomized:bool, allow_zero_sets:bool, 
+                            kreg:int, randomized:bool, allow_zero_sets:bool, num_classes:int,
                             strata:List[List[int]]):
     """
     ?
@@ -533,8 +536,8 @@ def pick_lamda_adaptiveness(model, paramtune_logits_subset:Subset, alpha:float,
     logging.info('Pick lambda adaptiveness')
     lamda_star = 0
     best_violation = 1
-    #paramtune_loader = paramtune_logits_subset.dataset 
-    paramtune_loader = DataLoader(paramtune_logits_subset)
+    paramtune_loader = paramtune_logits_subset.dataset 
+    #paramtune_loader = DataLoader(paramtune_logits_subset)
     for temp_lam in [0, 1e-5, 1e-4, 8e-4, 9e-4, 1e-3, 1.5e-3, 2e-3]:
         
         conformal_model = ConformalModelLogits(
@@ -545,6 +548,7 @@ def pick_lamda_adaptiveness(model, paramtune_logits_subset:Subset, alpha:float,
             lamda=temp_lam, 
             randomized=randomized, 
             allow_zero_sets=allow_zero_sets, 
+            num_classes=num_classes,
             naive=False,
             pct_paramtune=None,
             lamda_criterion=None, 
@@ -566,9 +570,10 @@ def pick_lamda_adaptiveness(model, paramtune_logits_subset:Subset, alpha:float,
 def pick_parameters(model, 
                     calib_logits_loader:DataLoader, 
                     alpha:float, 
-                    kreg:Optional[int,None], 
-                    lamda:Optional[int,None], 
+                    kreg:int, 
+                    lamda:float, 
                     randomized:bool, 
+                    num_classes:int,
                     allow_zero_sets:bool, 
                     pct_paramtune:float, 
                     lamda_criterion:str, 
@@ -625,7 +630,9 @@ def pick_parameters(model,
                 alpha=alpha, 
                 kreg=kreg, 
                 randomized=randomized, 
-                allow_zero_sets=allow_zero_sets
+                allow_zero_sets=allow_zero_sets,
+                num_classes=num_classes
+
             )
         elif lamda_criterion == "adaptiveness":
             lamda = pick_lamda_adaptiveness(
@@ -635,6 +642,7 @@ def pick_parameters(model,
                 kreg=kreg,
                 randomized=randomized, 
                 allow_zero_sets=allow_zero_sets, 
-                strata=strata
+                strata=strata,
+                num_classes=num_classes
             )
     return kreg, lamda, calib_logits_subset

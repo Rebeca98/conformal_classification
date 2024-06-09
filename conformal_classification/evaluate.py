@@ -7,14 +7,14 @@ from scipy.stats import median_abs_deviation as mad
 from typing import Tuple
 import torchvision
 import pandas as pd
-
+import os
 import torch.utils.data as tdata
 import torch
-
+from torch.utils.data import Dataset, DataLoader
 from conformal_classification.conformal import ConformalModelLogits
-
+from PIL import Image
 from conformal_classification.utils import get_calib_transform
-from conformal_classification.utils import get_logits_dataset_inference
+from conformal_classification.utils import get_logits_dataset_inference_w_labels
 from conformal_classification.utils import sort_sum
 from conformal_classification.utils import build_model_for_cp
 from conformal_classification.utils import validate
@@ -23,6 +23,7 @@ from conformal_classification.utils import get_logits_dataset
 #device = ('cuda' if torch.cuda.is_available() else 'cpu')
 device = ('mps' if torch.backends.mps.is_available() & torch.backends.mps.is_built() else 'cpu')
 #device = ('mps' if torch.backends.mps.is_available() & torch.backends.mps.is_built() else 'cpu')
+
 
 
 def get_logits_model(model_path:str,model_name:str, data_path:str,transform: torchvision.transforms.transforms.Compose, bsz:int ,num_classes:int):
@@ -393,8 +394,7 @@ def evaluate_and_conformalize_model(model, cal_logits, test_logits, bsz, alpha, 
                                             randomized = randomized,
                                             allow_zero_sets = allow_zero_sets,
                                             pct_paramtune = pct_paramtune, 
-                                            naive = naive_bool, 
-                                            batch_size = bsz, 
+                                            naive = naive_bool,
                                             lamda_criterion = lamda_criterion,
                                             strata = strata,
                                             num_classes=num_classes)
@@ -469,14 +469,13 @@ def cp_inference(trained_model, num_classes:int,alpha:float, image_size:int, pre
                     data_path_calibration:str, bsz:int, randomized:bool,allow_zero_sets:bool,
                      pct_paramtune:float, lamda_criterion:str='size', strata:List[List[int]] = None, model_evaluation:bool=True,data_path_test:str=None):
     transform = get_calib_transform(image_size)
-    cal_logits = get_logits_dataset_inference(trained_model, data_path = data_path_calibration, transform = transform, bsz = bsz, num_classes=num_classes)
+    cal_logits = get_logits_dataset_inference_w_labels(trained_model, data_path = data_path_calibration, transform = transform, bsz = bsz, num_classes=num_classes)
     
     if model_evaluation: 
-        test_logits = get_logits_dataset_inference(trained_model, data_path = data_path_test, transform = transform, bsz = bsz, num_classes=num_classes)
+        test_logits = get_logits_dataset_inference_w_labels(trained_model, data_path = data_path_test, transform = transform, bsz = bsz, num_classes=num_classes)
     
     
         df_result, conformalized_model = evaluate_and_conformalize_model(trained_model, 
-                                        model_evaluation = model_evaluation, 
                                         cal_logits = cal_logits, 
                                         test_logits = test_logits, 
                                         bsz = bsz, 
